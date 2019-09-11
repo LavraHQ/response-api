@@ -1,0 +1,57 @@
+name: Build Canary Image
+
+on:
+  push:
+    branches:
+      - canary
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Build, Tag, Push Images
+        run: |
+          IMAGE_NAME="lavrahq/response-api:canary"
+
+          function jsonval() {
+            awk -F"[,:}]" '{for(i=1;i<=NF;i++){if($i~/\042'$KEY'\042/){print $(i+1)}}}' | tr -d '"' | sed -e 's/^[[:space:]]*//'
+          }
+
+          if [ -f ".version" ]; then
+            echo "Found .version"
+            VERSION=$(cat .version)
+          else
+            echo "Missing .version"
+            VERSION=$(curl -s -X GET https://api.github.com/repos/lavrahq/response-api/releases/latest | jsonval tag_name)
+          fi
+
+          echo "Logging in to DockerHub"
+          echo -n $DOCKER_PASSWORD | docker login \
+            --username $DOCKER_USERNAME \
+            --password-stdin
+
+          echo "Building Canary"
+          docker build . \
+            --file Dockerfile \
+            --tag $IMAGE_NAME \
+            --label "org.label-schema.vcs-ref=${GITHUB_SHA:0:7}"
+
+          echo "Pushing Canary"
+          docker push \
+            $IMAGE_NAME
+
+          echo "Tagging SHA"
+          docker tag \
+            $IMAGE_NAME \
+            $IMAGE_NAME.${GITHUB_SHA:0:7}
+
+          echo "Pushing Version"
+          docker push \
+            $IMAGE_NAME.${GITHUB_SHA:0:7}
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+          
